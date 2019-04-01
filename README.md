@@ -16,6 +16,8 @@
 
 
 ### 使用介绍 ###
+添加依赖包:该工程直接打包就行。
+
         <dependency>
             <groupId>com.elvesfish</groupId>
             <artifactId>spring-boot-quartz-plus</artifactId>
@@ -23,7 +25,8 @@
         </dependency>
         
 ### 配置文件  ###
-还是使用spring-boot-start-quartz的自动配置
+还是使用spring-boot-start-quartz的自动配置.
+application.properties
 
      #spring-boot-quartz
      spring.quartz.properties.org.quartz.scheduler.instanceName=scheduler-quartz-test
