@@ -17,17 +17,17 @@
 
 ### 使用介绍 ###
 添加依赖包:该工程直接打包就行。
-
+```
         <dependency>
             <groupId>com.elvesfish</groupId>
             <artifactId>spring-boot-quartz-plus</artifactId>
             <version>1.0.1</version>
         </dependency>
-        
+```
 ### 配置文件  ###
 还是使用spring-boot-start-quartz的自动配置.
 application.properties
-
+```
      #spring-boot-quartz
      spring.quartz.properties.org.quartz.scheduler.instanceName=scheduler-quartz-test
      spring.quartz.properties.org.quartz.scheduler.instanceId=AUTO
@@ -48,3 +48,62 @@ application.properties
      #quartz listener
      #spring.quartz.properties.org.quartz.jobListener.NAME.class=com.elvesfish.quartz.listener.SimpleJobListener
      #spring.quartz.properties.org.quartz.triggerListener.NAME.class=com.elvesfish.quartz.listener.SimpleTriggerListener
+```     
+### 业务代码 ###
+1. TestJob类
+```
+    package com.elvesfish.ms.job;
+    
+    import com.elvesfish.ms.service.ISecUserService;
+    
+    import org.quartz.DisallowConcurrentExecution;
+    import org.quartz.Job;
+    import org.quartz.JobExecutionContext;
+    import org.quartz.JobExecutionException;
+    import org.springframework.beans.factory.annotation.Autowired;
+    
+    import java.util.Date;
+    
+    import lombok.extern.slf4j.Slf4j;
+    
+    @DisallowConcurrentExecution
+    @Slf4j
+    public class TestJob implements Job {
+    
+        @Autowired
+        private ISecUserService userService;
+    
+        @Override
+        public void execute(JobExecutionContext jobExecutionContext) throws JobExecutionException {
+             userService.list();
+            log.info("==============定时任务：" + new Date() + "");
+        }
+    }
+```
+2. 使用上面介绍的保存接口：POST请求
+jobName：任务名称</br>
+jobGroup：任务组</br>
+jobClass：TestJob测试类路径</br>
+```
+    {
+      "cronExpression": "0 */1 * * * ?",
+      "jobClass": "com.elvesfish.ms.job.TestJob",
+      "jobDataMap": {},
+      "jobDescription": "测试工作任务内容述说明",
+      "jobGroup": "qq",
+      "jobName": "test",
+      "triggerDescription": "触发器描述说明",
+      "triggerPriority": 5
+    }
+```
+3. 打印日志内容
+```
+2019-04-01 15:36:00.031 DEBUG com.elvesfish.ms.dao.SecUserMapper.selectList - ==>  Preparing: SELECT user_id,user_name,password,nick_name,user_status,create_by,create_time,update_by,update_time FROM sec_user 
+2019-04-01 15:36:00.032 DEBUG com.elvesfish.ms.dao.SecUserMapper.selectList - ==> Parameters: 
+2019-04-01 15:36:00.037 DEBUG com.elvesfish.ms.dao.SecUserMapper.selectList - <==      Total: 6
+2019-04-01 15:36:00.037 INFO  com.elvesfish.ms.job.TestJob - ==============定时任务：Mon Apr 01 15:36:00 GMT+08:00 2019
+2019-04-01 15:37:00.029 DEBUG com.elvesfish.ms.dao.SecUserMapper.selectList - ==>  Preparing: SELECT user_id,user_name,password,nick_name,user_status,create_by,create_time,update_by,update_time FROM sec_user 
+2019-04-01 15:37:00.029 DEBUG com.elvesfish.ms.dao.SecUserMapper.selectList - ==> Parameters: 
+2019-04-01 15:37:00.033 DEBUG com.elvesfish.ms.dao.SecUserMapper.selectList - <==      Total: 6
+2019-04-01 15:37:00.034 INFO  com.elvesfish.ms.job.TestJob - ==============定时任务：Mon Apr 01 15:37:00 GMT+08:00 2019
+```
