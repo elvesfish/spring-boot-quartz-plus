@@ -3,6 +3,9 @@ package com.elvesfish.quartz.service;
 
 import com.elvesfish.quartz.bean.TaskInfo;
 import com.elvesfish.quartz.bean.TaskVo;
+import com.elvesfish.quartz.common.CronMisfire;
+import com.elvesfish.quartz.common.SimpleMisfire;
+import com.elvesfish.quartz.common.TriggerType;
 import com.elvesfish.quartz.exception.ServiceException;
 
 import org.apache.commons.lang3.time.DateFormatUtils;
@@ -15,6 +18,8 @@ import org.quartz.JobDetail;
 import org.quartz.JobKey;
 import org.quartz.Scheduler;
 import org.quartz.SchedulerException;
+import org.quartz.SimpleScheduleBuilder;
+import org.quartz.SimpleTrigger;
 import org.quartz.Trigger;
 import org.quartz.TriggerBuilder;
 import org.quartz.TriggerKey;
@@ -107,12 +112,9 @@ public class TaskService {
         String jobName = info.getJobName();
         String jobGroup = info.getJobGroup();
         String jobClass = info.getJobClass();
-        String cronExpression = info.getCronExpression();
         String jobDescription = info.getJobDescription();
-        String triggerDescription = info.getTriggerDescription();
         Map<String, Object> jobDataMapInfo = info.getJobDataMap();
-        int triggerPriority = info.getTriggerPriority();
-        triggerPriority = triggerPriority == 0 ? 5 : triggerPriority;
+
         try {
             if (checkExists(jobName, jobGroup)) {
                 throw new ServiceException(String.format("Job已经存在, jobName:{%s},jobGroup:{%s}", jobName, jobGroup));
@@ -120,20 +122,13 @@ public class TaskService {
 
             TriggerKey triggerKey = TriggerKey.triggerKey(jobName, jobGroup);
             JobKey jobKey = JobKey.jobKey(jobName, jobGroup);
-            //表达式触发器
-            CronScheduleBuilder schedBuilder = CronScheduleBuilder.cronSchedule(cronExpression).withMisfireHandlingInstructionDoNothing();
-            CronTrigger trigger = TriggerBuilder.newTrigger().withIdentity(triggerKey).withDescription(triggerDescription).
-                withPriority(triggerPriority).withSchedule(schedBuilder).build();
+            //trigger
+            Trigger trigger = this.selectTrigger(triggerKey, info);
 
-            //简单触发器
-//            SimpleScheduleBuilder simpleScheduleBuilder = SimpleScheduleBuilder.simpleSchedule().withIntervalInSeconds(2).repeatForever();
-//            SimpleTrigger simpleTrigger = (SimpleTrigger) TriggerBuilder.newTrigger().withIdentity(triggerKey).withDescription(triggerDescription)
-//                    .withSchedule(simpleScheduleBuilder).build();
             //jobDataMap
             JobDataMap jobDataMap = new JobDataMap();
             if (jobDataMapInfo != null) {
                 jobDataMap = new JobDataMap(jobDataMapInfo);
-//                jobDetail.getJobBuilder().setJobData(jobDataMap);
             }
             //JobDetail
             Class<? extends Job> clazz = (Class<? extends Job>) Class.forName(jobClass);
@@ -156,12 +151,9 @@ public class TaskService {
         String jobName = info.getJobName();
         String jobGroup = info.getJobGroup();
         String jobClass = info.getJobClass();
-        String cronExpression = info.getCronExpression();
         String jobDescription = info.getJobDescription();
-        String triggerDescription = info.getTriggerDescription();
         Map<String, Object> jobDataMapInfo = info.getJobDataMap();
-        int triggerPriority = info.getTriggerPriority();
-        triggerPriority = triggerPriority == 0 ? 5 : triggerPriority;
+
         try {
             if (!checkExists(jobName, jobGroup)) {
                 throw new ServiceException(String.format("Job不存在, jobName:{%s},jobGroup:{%s}", jobName, jobGroup));
@@ -173,11 +165,8 @@ public class TaskService {
             scheduler.pauseTrigger(triggerKey);
             scheduler.unscheduleJob(triggerKey);
 
-            //add job
-            //表达式触发器
-            CronScheduleBuilder schedBuilder = CronScheduleBuilder.cronSchedule(cronExpression).withMisfireHandlingInstructionDoNothing();
-            CronTrigger trigger = TriggerBuilder.newTrigger().withIdentity(triggerKey).withDescription(triggerDescription).
-                withPriority(triggerPriority).withSchedule(schedBuilder).build();
+            //trigger
+            Trigger trigger = this.selectTrigger(triggerKey, info);
 
             //jobDataMap
             JobDataMap jobDataMap = new JobDataMap();
@@ -278,5 +267,134 @@ public class TaskService {
     private boolean checkExists(String jobName, String jobGroup) throws SchedulerException {
         TriggerKey triggerKey = TriggerKey.triggerKey(jobName, jobGroup);
         return scheduler.checkExists(triggerKey);
+    }
+
+    /**
+     * 根据触发器类型选择触发器(默认是表达式触发器)
+     *
+     * @param triggerKey
+     * @param info
+     * @return
+     */
+    private Trigger selectTrigger(TriggerKey triggerKey, TaskVo info) {
+        Trigger trigger;
+        if (info.getTriggerType().equals(TriggerType.CRON.getKey())) {
+            trigger = setCronTrigger(triggerKey, info);
+        } else if (info.getTriggerType().equals(TriggerType.SIMPLE.getKey())) {
+            trigger = setSimpleTrigger(triggerKey, info);
+        } else {
+            trigger = setCronTrigger(triggerKey, info);
+        }
+        return trigger;
+    }
+
+    /**
+     * 设置表达式触发器
+     *
+     * @param triggerKey
+     * @param info
+     * @return
+     */
+    private CronTrigger setCronTrigger(TriggerKey triggerKey, TaskVo info) {
+        int triggerPriority = info.getTriggerPriority();
+        triggerPriority = triggerPriority == 0 ? 5 : triggerPriority;
+        //表达式触发器
+        CronScheduleBuilder schedBuilder = CronScheduleBuilder.cronSchedule(info.getCronExpression());
+        this.setCronMisFireType(info, schedBuilder);
+        return TriggerBuilder.newTrigger().withIdentity(triggerKey).withDescription(info.getTriggerDescription()).
+            withPriority(triggerPriority).withSchedule(schedBuilder).build();
+    }
+
+    /**
+     * 设置简单触发器
+     *
+     * @param triggerKey
+     * @param info
+     * @return
+     */
+    private SimpleTrigger setSimpleTrigger(TriggerKey triggerKey, TaskVo info) {
+        //简单触发器
+        SimpleScheduleBuilder simpleScheduleBuilder = SimpleScheduleBuilder.simpleSchedule().
+            withIntervalInSeconds(info.getIntervalInSeconds()).withRepeatCount(info.getRepeatCount());
+        this.setSimpleMisFireType(info, simpleScheduleBuilder);
+        return TriggerBuilder.newTrigger().withIdentity(triggerKey).withDescription(info.getTriggerDescription())
+                             .withSchedule(simpleScheduleBuilder).build();
+    }
+
+
+    /**
+     * 表达式失败处理指令选择策略
+     *
+     * @param info
+     * @param cronScheduleBuilder
+     */
+    private void setCronMisFireType(TaskVo info, CronScheduleBuilder cronScheduleBuilder) {
+        if (CronMisfire.DO_NOTHING.getKey().equals(info.getCronMisfire())) {
+            //不触发立即执行,等待下次Cron触发频率到达时刻开始按照Cron频率依次执行
+            cronScheduleBuilder.withMisfireHandlingInstructionDoNothing();
+        } else if (CronMisfire.FIRE_ONCE_NOW.getKey().equals(info.getCronMisfire())) {
+            //以当前时间为触发频率立刻触发一次执行
+            //然后按照Cron频率依次执行
+            cronScheduleBuilder.withMisfireHandlingInstructionFireAndProceed();
+        } else if (CronMisfire.IGNORE_MISFIRES.getKey().equals(info.getCronMisfire())) {
+            //以错过的第一个频率时间立刻开始执行
+            //重做错过的所有频率周期后
+            //当下一次触发频率发生时间大于当前时间后，再按照正常的Cron频率依次执行
+            cronScheduleBuilder.withMisfireHandlingInstructionIgnoreMisfires();
+        } else {
+            //默认值
+            //不触发立即执行,等待下次Cron触发频率到达时刻开始按照Cron频率依次执行
+            cronScheduleBuilder.withMisfireHandlingInstructionDoNothing();
+        }
+    }
+
+    /**
+     * 简单失败处理指令选择策略
+     *
+     * @param info
+     * @param simpleScheduleBuilder
+     */
+    private void setSimpleMisFireType(TaskVo info, SimpleScheduleBuilder simpleScheduleBuilder) {
+        if (SimpleMisfire.FIRE_NOW.getKey().equals(info.getSimpleMisfire())) {
+            //以当前时间为触发频率立即触发执行
+            //执行至FinalTIme的剩余周期次数
+            //以调度或恢复调度的时刻为基准的周期频率，FinalTime根据剩余次数和当前时间计算得到
+            //调整后的FinalTime会略大于根据starttime计算的到的FinalTime值
+            simpleScheduleBuilder.withMisfireHandlingInstructionFireNow();
+        } else if (SimpleMisfire.IGNORE_MISFIRES.getKey().equals(info.getSimpleMisfire())) {
+            //以错过的第一个频率时间立刻开始执行
+            //重做错过的所有频率周期
+            //当下一次触发频率发生时间大于当前时间以后，按照Interval的依次执行剩下的频率
+            //共执行RepeatCount+1次
+            simpleScheduleBuilder.withMisfireHandlingInstructionIgnoreMisfires();
+        } else if (SimpleMisfire.NEXT_WITH_EXISTING_COUNT.getKey().equals(info.getSimpleMisfire())) {
+            //不触发立即执行
+            //等待下次触发频率周期时刻，执行至FinalTime的剩余周期次数
+            //以startTime为基准计算周期频率，并得到FinalTime
+            //即使中间出现pause，resume以后保持FinalTime时间不变
+            simpleScheduleBuilder.withMisfireHandlingInstructionNextWithExistingCount();
+        } else if (SimpleMisfire.NOW_WITH_EXISTING_COUNT.getKey().equals(info.getSimpleMisfire())) {
+            //——以当前时间为触发频率立即触发执行
+            //——执行至FinalTIme的剩余周期次数
+            //——以调度或恢复调度的时刻为基准的周期频率，FinalTime根据剩余次数和当前时间计算得到
+            //——调整后的FinalTime会略大于根据starttime计算的到的FinalTime值
+            //总结:失效之后，再启动之后马上执行，但是起始次数清零，总次数=7+当前misfire执行次数-1
+            simpleScheduleBuilder.withMisfireHandlingInstructionNowWithExistingCount();
+        } else if (SimpleMisfire.NEXT_WITH_REMAINING_COUNT.getKey().equals(info.getSimpleMisfire())) {
+            //——不触发立即执行
+            //——等待下次触发频率周期时刻，执行至FinalTime的剩余周期次数
+            //——以startTime为基准计算周期频率，并得到FinalTime
+            //——即使中间出现pause，resume以后保持FinalTime时间不变
+            simpleScheduleBuilder.withMisfireHandlingInstructionNextWithRemainingCount();
+        } else if (SimpleMisfire.NOW_WITH_REMAINING_COUNT.getKey().equals(info.getSimpleMisfire())) {
+            //——以当前时间为触发频率立即触发执行
+            //——执行至FinalTIme的剩余周期次数
+            //——以调度或恢复调度的时刻为基准的周期频率，FinalTime根据剩余次数和当前时间计算得到
+            //——调整后的FinalTime会略大于根据starttime计算的到的FinalTime值
+            simpleScheduleBuilder.withMisfireHandlingInstructionNowWithRemainingCount();
+        } else {
+            //默认值
+            simpleScheduleBuilder.withMisfireHandlingInstructionFireNow();
+        }
     }
 }
